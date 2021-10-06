@@ -1,4 +1,4 @@
-# Max Clique problem
+# Max Clique Problem
 
 Current results:
 
