@@ -1,5 +1,26 @@
 Filename,Best known,Type
 ,,,
+C125.9,34,M
+//
+hamming8-4,16,E
+//
+keller4,11,E
+//
+johnson8-2-4,4,E
+johnson16-2-4,8,E
+MANN_a9,16,E
+keller4,11,E
+hamming8-4,16,E
+C125.9,34,M
+brock200_1,21,M
+brock200_2,12,M
+brock200_3,15,M
+brock200_4,17,M
+gen200_p0.9_44,44,M
+gen200_p0.9_55,55,M
+//
+p_hat1000-1,10,M
+//
 johnson8-2-4,4,E
 johnson16-2-4,8,E
 MANN_a9,16,E
@@ -20,7 +41,6 @@ brock400_1,27,H
 brock400_2,29,H
 brock400_3,31,H
 brock400_4,33,H
-p_hat1000-1,10,M
 san1000,15,M
 MANN_a45,345,H
 sanr400_0.7,21,H
