@@ -1,16 +1,4 @@
 #include "general.h"
-#include <functional>
-#include <sys/resource.h>
-
-//#define _CRT_SECURE_NO_WARNINGS
-//#pragma comment(lib, "version.lib")
-//#pragma comment(lib, "libversion.a")
-//#pragma comment(linker, "/stack:200000000")
-//#pragma GCC optimize("Ofast")
-//#pragma GCC target("sse,sse2,sse3,ssse3,sse4,popcnt,abm,mmx,avx,tune=native")
-//#pragma GCC optimization ("O3")
-//#pragma GCC optimization ("unroll-loops")
-
 
 struct MAX_CLIQUE {
     int size = -1;
@@ -22,113 +10,115 @@ class MaxCliqueSolver {
 public:
     GRAPH graph;
     int number_vertices;
-    int largest_independent_set_size = 1000;
+    int largest_independent_set_size;
     int min_independent_set_size = 3;
     uniform_int_distribution<int> random_int;
     IloEnv env;
     IloModel model;
     IloFloatVarArray x;
+    MAX_CLIQUE solution;
+    int global_answer = -1;
+    vector<int> cur_solution;
+    vector<int> candidates;
+    int prev_vertex = -1, prev_vertex_value = 0;
+    vector<int> max_clique;
+    int iterations = -1;
 
     explicit MaxCliqueSolver(const GRAPH &graph) {
         this->graph = graph;
         this->number_vertices = graph.number_vertices;
+
+        largest_independent_set_size = number_vertices;
+        min_independent_set_size = min(10, max(3, ((100 * number_vertices) / (int) graph.edges.size() + 1) + 1));
+        cout << "Min independent set size: " << min_independent_set_size << "\n";
         random_int = uniform_int_distribution<int>(0, number_vertices - 1);
         model = IloModel(env);
         x = IloFloatVarArray(env, number_vertices);
-        create_problem(find_sets());
+        create_problem(find_independent_sets());
     }
 
-    void find_set(int deep, set<int> cur_set, vector<int> &used, set<set<int>> &sets, map<EDGE, bool> &pairs) {
+
+    void find_independent_set(vector<int> cur_set, vector<int> &unused, vector<vector<int>> &independent_sets,
+                              map<EDGE, bool> &no_edge) {
+
+        if (no_edge.empty())
+            return;
 
         bool found_large = false;
 
-        auto i = used.begin();
-        while (i != used.end() && (int) cur_set.size() < largest_independent_set_size) {
-            bool independent = true;
+        auto vertex = unused.begin();
+        int deep = cur_set.size();
+
+        while (vertex != unused.end() && (int) cur_set.size() < largest_independent_set_size) {
+            bool add = true;
             for (auto &j: cur_set)
-                if (graph.graph_matrix[min(*i, j)][max(*i, j)]) {
-                    independent = false;
+                if (graph.graph_matrix[j][*vertex] || *vertex == j) {
+                    add = false;
                     break;
                 }
-            if (independent) {
-                int val = *i;
-                cur_set.insert(val);
-                used.erase(i);
-                find_set(deep + 1, cur_set, used, sets, pairs);
+            if (add) {
+                int val = *vertex;
+                cur_set.push_back(val);
+                unused.erase(vertex);
+                find_independent_set(cur_set, unused, independent_sets, no_edge);
                 found_large = true;
-                cur_set.erase(val);
-                i = used.begin();
+                cur_set.pop_back();
+                vertex = unused.begin();
             } else
-                i++;
+                vertex++;
         }
 
         if (deep >= min_independent_set_size && (deep == largest_independent_set_size || !found_large)) {
+            int c = 0;
             for (auto &i: cur_set)
                 for (auto &j: cur_set)
-                    if (pairs.find({min(i, j), max(i, j)}) != pairs.end())
-                        pairs.erase({min(i, j), max(i, j)});
-            sets.insert(cur_set);
+                    if (no_edge.find({min(i, j), max(i, j)}) != no_edge.end()) {
+                        no_edge.erase({min(i, j), max(i, j)});
+                        c += 1;
+                    }
+            if (c != 0)
+                independent_sets.push_back(cur_set);
         }
     }
 
-    set<set<int>> find_sets() {
-        map<EDGE, bool> pairs;
-        for (int i = 0; i < number_vertices; ++i) {
+    vector<vector<int>> find_independent_sets() {
+        map<EDGE, bool> no_edge;
+        for (int i = 0; i < number_vertices; ++i)
             for (int j = i + 1; j < number_vertices; ++j) {
                 if (graph.graph_matrix[i][j])
                     continue;
-                pairs[{i, j}] = true;
+                no_edge[{i, j}] = true;
             }
-        }
 
-        set<set<int>> sets;
+        cout << "No edges: " << no_edge.size() << "\n";
 
-        cout << "No edges: " << pairs.size() << "\n";
+        vector<vector<int>> independent_sets;
 
-        for (int i = 0; i < number_vertices; ++i) {
-            for (int _ = 0; _ < 1; ++_) {
-                vector<int> used;
+        for (int vertex = 0; vertex < number_vertices; ++vertex)
+            for (int attempt = 0; attempt < 10; ++attempt) {
+                vector<int> unused;
                 for (int j = 0; j < number_vertices; ++j) {
-                    int add = random_int(rng) % number_vertices;
-                    if (i != add)
-                        used.push_back(add);
+                    int vertex_to_add = random_int(rng) % number_vertices;
+                    if (vertex != vertex_to_add)
+                        unused.push_back(vertex_to_add);
                 }
-                find_set(0, set<int>({i}), used, sets, pairs);
+                find_independent_set(vector<int>({vertex}), unused, independent_sets, no_edge);
             }
-        }
 
-        cout << "Independent sets size 2: " << pairs.size() << "\n";
 
-        for (auto &i: pairs)
-            sets.insert(set<int>({i.first.first, i.first.second}));
+        cout << "Independent sets size 2: " << no_edge.size() << "\n";
 
-        cout << "Found independent sets (+ size 2): " << sets.size() << "\n";
-        return sets;
+        for (auto &i: no_edge)
+            independent_sets.push_back(vector<int>({i.first.first, i.first.second}));
+
+        cout << "Found independent sets (+ size 2): " << independent_sets.size() << "\n";
+        return independent_sets;
     }
 
-    double solve() {
-        IloCplex cplex(model);
-        cplex.exportModel("model.lp");
-        if (cplex.solve()) {
-            auto xx = x;
-            sort(bounds.begin(), bounds.end(), [&cplex, &xx](int a, int b) {
-                return cplex.getValue(xx[a]) < cplex.getValue(xx[b]);
-            });
-            return cplex.getObjValue();
-        }
-        return -1;
-    }
+    void create_problem(const vector<vector<int>> &sets) {
 
-
-    void create_problem(set<set<int>> sets) {
-
-        std::stringstream name;
-
-        for (auto i = 0; i < number_vertices; ++i) {
-            name << "x_" << i;
-            x[i] = IloFloatVar(env, 0., 1., name.str().c_str());
-            name.str("");
-        }
+        for (auto i = 0; i < number_vertices; ++i)
+            x[i] = IloFloatVar(env, 0., 1.);
 
         IloRangeArray independent_sets(env);
 
@@ -154,147 +144,206 @@ public:
 
     }
 
-    MAX_CLIQUE BnB() {
-        bounds.reserve(number_vertices);
-        for (int i = 0; i < number_vertices; i++)
-            bounds.push_back(i);
+    double cplex_solve() {
+        if (candidates.empty())
+            return (double) cur_solution.size();
 
-        vector<int> v(number_vertices, 0);
-        for (int i = 0; i < number_vertices; i++)
-            for (int j = 0; j < number_vertices; j++)
-                v[i] += graph.graph_matrix[i][j];
+        IloCplex cplex(model);
+        cplex.setOut(env.getNullStream());
 
-        sort(bounds.begin(), bounds.end(), [&v](int a, int b) {
-            return v[a] < v[b];
-        });
-        BnB_();
-        return gbAns;
+        double ans = -1;
+        if (cplex.solve()) {
+            size_t large_zero = candidates.size() - 1;
+            for (size_t i = 0; i < candidates.size(); ++i)
+                if (cplex.getValue(x[candidates[i]]) > EPS) {
+                    large_zero = i;
+                    break;
+                }
+
+            if (!candidates.empty() && large_zero != candidates.size() - 1)
+                swap(candidates[candidates.size() - 1], candidates[large_zero]);
+
+            ans = cplex.getObjValue();
+        }
+
+        cplex.end();
+        return ans;
     }
 
-    MAX_CLIQUE gbAns;
-    int globalAns = -1;
-    vector<int> solution;
-    vector<int> bounds;
-    int v = -1, value = 0;
+    void find_clique(vector<int> &cur_clique) {
+        if (cur_clique.size() > max_clique.size())
+            max_clique = cur_clique;
+        for (int attempt = 0; attempt < number_vertices; ++attempt) {
+            auto vertex = random_int(rng) % number_vertices;
+            bool add = true;
+            for (auto &j: cur_clique)
+                if (graph.graph_matrix[vertex][j] == 0 || vertex == j)
+                    add = false;
+            if (add) {
+                cur_clique.push_back(vertex);
+                find_clique(cur_clique);
+                cur_clique.pop_back();
+                break;
+            }
+        }
+    }
 
-    void BnB_() {
+    MAX_CLIQUE solve(int iterations = -1) {
+        this->iterations = iterations;
 
-        if ((int) bounds.size() + (int) solution.size() <= globalAns)
+        candidates.reserve(number_vertices);
+
+        for (int vertex = 0; vertex < number_vertices; ++vertex)
+            for (int attempt = 0; attempt < number_vertices; ++attempt) {
+                vector<int> cur;
+                cur.push_back(vertex);
+                find_clique(cur);
+            }
+
+        cout << "Initial max clique size: " << max_clique.size() << "\n";
+
+        set<int> max_clique_set(max_clique.begin(), max_clique.end());
+
+        for (int i = 0; i < number_vertices; i++) {
+            if (max_clique_set.find(i) == max_clique_set.end())
+                candidates.push_back(i);
+        }
+
+        for (auto &i: max_clique_set)
+            candidates.push_back(i);
+
+        solution = {(int) max_clique.size(), max_clique};
+        global_answer = (int) max_clique.size();
+
+        BnB();
+
+        return solution;
+    }
+
+    bool IL = false;
+
+    void BnB() {
+
+        if (iterations == 0) {
+            IL = true;
+            return;
+        } else
+            --iterations;
+
+        if ((int) candidates.size() + (int) cur_solution.size() <= global_answer)
             return;
 
-        bool b = value == 1;
-        cout << v << " " << globalAns << " gb\n";
+        bool prev_vertex_in = (prev_vertex_value == 1);
+        bool is_first_vertex = (prev_vertex == -1);
+
         IloRange constraint;
         IloExpr expr(env);
 
-        if (v != -1) {
-            if (b)
-                solution.push_back(v);
-
-            expr = x[v];
-            constraint = IloRange(env, value, expr, value);
+        if (!is_first_vertex) {
+            if (prev_vertex_in)
+                cur_solution.push_back(prev_vertex);
+            expr = x[prev_vertex];
+            constraint = IloRange(env, prev_vertex_value, expr, prev_vertex_value);
             model.add(constraint);
-
-            double sol = solve();
-
-            cout << "sols " << sol << " " << solution.size() << "\n";
-
-            if (floor(sol) == solution.size()) {
-                if (globalAns < sol) {
-                    globalAns = floor(sol);
-                    gbAns = MAX_CLIQUE{(int) floor(sol), solution};
-                }
-            }
-
-            if (floor(sol) <= globalAns) {
-                expr.end();
-                model.remove(constraint);
-                if (b)
-                    solution.pop_back();
-                return;
-            }
         }
 
-        if (bounds.empty()) {
-            globalAns = solution.size();
-            gbAns = MAX_CLIQUE{(int) solution.size(), solution};
-            model.remove(constraint);
-            solution[v] = -1;
+        double sol = cplex_solve();
+
+        if (floor(sol + EPS) <= cur_solution.size() || floor(sol + EPS) <= global_answer) {
+            if (global_answer < (int)cur_solution.size()) {
+                global_answer = cur_solution.size();
+                solution = MAX_CLIQUE{global_answer, cur_solution};
+            }
+            if (prev_vertex_in)
+                cur_solution.pop_back();
+            if (!is_first_vertex)
+                model.remove(constraint);
+            expr.end();
             return;
         }
 
-        int vertex = bounds.back();
-        bounds.pop_back();
+        if (candidates.empty()) {
+            if ((int) cur_solution.size() > global_answer) {
+                global_answer = cur_solution.size();
+                solution = MAX_CLIQUE{(int) cur_solution.size(), cur_solution};
+            }
 
-        bool add = true;
-        for (int i: solution)
-            if (graph.graph_matrix[vertex][i] == 0)
-                add = false;
+            if (prev_vertex_in)
+                cur_solution.pop_back();
+            if (!is_first_vertex)
+                model.remove(constraint);
 
-        if (add) {
-            v = vertex, value = 1;
-            BnB_();
+            expr.end();
+            return;
         }
 
-        v = vertex, value = 0;
-        BnB_();
+        int vertex = candidates.back();
+        candidates.pop_back();
 
-        bounds.push_back(vertex);
+        bool add[2] = {true, true};
+        for (int i: cur_solution)
+            if (graph.graph_matrix[vertex][i] == 0) {
+                add[1] = false;
+                break;
+            }
 
-        if (v != -1) {
+//        int h = random_int(rng) % 2;
+        int h = 1;
+        for (auto &v: {h, 1 - h}) {
+            if (add[v]) {
+                prev_vertex = vertex, prev_vertex_value = v;
+                BnB();
+            }
+        }
+
+        candidates.push_back(vertex);
+
+        if (!is_first_vertex) {
             model.remove(constraint);
-            if (b)
-                solution.pop_back();
+            if (prev_vertex_in)
+                cur_solution.pop_back();
         }
+        expr.end();
+    }
+
+    bool check_solve() {
+        for (auto &v1: solution.vertices)
+            for (auto &v2: solution.vertices)
+                if (v1 != v2 && graph.graph_matrix[v1][v2] == 0)
+                    return false;
+        return (int) solution.vertices.size() == solution.size;
     }
 
 };
 
 int main() {
-//    {
-//        const rlim_t kStackSize = 1024 * 1024 * 1024;   // min stack size = 16 MB
-//        struct rlimit rl;
-//        int result;
-//
-//        result = getrlimit(RLIMIT_STACK, &rl);
-//        if (result == 0) {
-//            if (rl.rlim_cur < kStackSize) {
-//                rl.rlim_cur = kStackSize;
-//                result = setrlimit(RLIMIT_STACK, &rl);
-//                if (result != 0) {
-//                    cout << "setrlimit returned result = " <<  result;
-//                }
-//            }
-//        }
-//
-//    }
+
     auto info = read_info();
 
     ofstream result("../result.csv");
 
-    for (auto &graph_case : info) {
+    for (auto &graph_case: info) {
 
         cout << "Filename: " << graph_case.first << "\n";
         auto graph = read_graph(graph_case.first);
 
-        MaxCliqueSolver solver = MaxCliqueSolver(graph);
-
         auto begin = chrono::system_clock::now();
-        MAX_CLIQUE ans = solver.BnB();
+        MaxCliqueSolver solver = MaxCliqueSolver(graph);
+        solver.solve(100000);
         auto time = getDiff(begin);
 
-        cout << time << " ";
+        cout << "Time: " << time << "; " << solver.IL << "; " << solver.solution.size << "; " << graph_case.second << "\n";
 
-//        assert(ans.vertices.size() == ans.size);
+        if (solver.solution.size == graph_case.second && solver.check_solve()) {
+            result << true << ", ";
+        } else
+            result << false << ", ";
 
-        if (ans.size == graph_case.second) {
-            result << graph_case.first << ",";
-            result << time << "," << ans.size << "," << graph_case.second << "\n";
-            cout << "Accepted\n";
-        } else {
-            cout << ans.size << " " << graph_case.second << " : Error\n";
-            throw;
-        }
+        result << graph_case.first << ",";
+        result << time << "," << solver.solution.size << "," << graph_case.second << "," << solver.max_clique.size()
+               << ", " << solver.IL << "\n";
+
+        cout << "\n";
 
     }
 

@@ -1,13 +1,14 @@
 #include <bits/stdc++.h>
 #include <random>
+#include <functional>
 
 #ifndef IL_STD
 #define IL_STD
 #endif
 
-#define EPS 1e-6
-
 #include <ilcplex/ilocplex.h>
+
+#define EPS 0.00001
 
 ILOSTLBEGIN
 
@@ -20,11 +21,11 @@ typedef pair<int, int> EDGE;
 typedef vector<vector<int>> GRAPH_MATRIX;
 typedef vector<EDGE> EDGES;
 
-
 struct GRAPH {
     GRAPH_MATRIX graph_matrix;
     EDGES edges;
     int number_vertices;
+    vector<int> num_edges;
 };
 
 GRAPH read_graph(const string &filename) {
@@ -45,6 +46,7 @@ GRAPH read_graph(const string &filename) {
     }
 
     GRAPH_MATRIX graph_matrix(number_vertices, vector<int>(number_vertices, 0));
+    vector<int> num_edges(number_vertices, 0);
     EDGES edges;
     for (int i = 0; i < number_edges; i++) {
         char c;
@@ -52,12 +54,14 @@ GRAPH read_graph(const string &filename) {
         file >> c >> a >> b;
         a--;
         b--;
+        num_edges[a] += 1;
+        num_edges[b] += 1;
         graph_matrix[a][b] = graph_matrix[b][a] = 1;
         edges.push_back({a, b});
     }
     file.close();
 
-    return GRAPH{graph_matrix, edges, number_vertices};
+    return GRAPH{graph_matrix, edges, number_vertices, num_edges};
 }
 
 vector<pair<string, int>> read_info() {
