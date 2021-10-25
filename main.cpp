@@ -24,17 +24,33 @@ public:
     vector<int> max_clique;
     int iterations = -1;
 
-    explicit MaxCliqueSolver(const GRAPH &graph) {
+    explicit MaxCliqueSolver(const GRAPH &graph, int min_independent_set_size = -1) {
         this->graph = graph;
         this->number_vertices = graph.number_vertices;
 
         largest_independent_set_size = number_vertices;
-        min_independent_set_size = min(10, max(3, ((100 * number_vertices) / (int) graph.edges.size() + 1) + 1));
-        cout << "Min independent set size: " << min_independent_set_size << "\n";
+        vector<vector<int>> independent_sets;
+        if (min_independent_set_size == -1) {
+            int the_best = 3;
+            for (this->min_independent_set_size = 3;
+                 this->min_independent_set_size <= 10; this->min_independent_set_size += 2) {
+                auto sets = find_independent_sets();
+                if (sets.size() < independent_sets.size() || independent_sets.empty()) {
+                    independent_sets = sets;
+                    the_best = this->min_independent_set_size;
+                }
+            }
+            this->min_independent_set_size = the_best;
+        } else {
+            this->min_independent_set_size = min_independent_set_size;
+            independent_sets = find_independent_sets();
+        }
+        cout << "Min independent set size: " << this->min_independent_set_size << "\n";
+        cout << "Independent sets: " << independent_sets.size() << "\n";
         random_int = uniform_int_distribution<int>(0, number_vertices - 1);
         model = IloModel(env);
         x = IloFloatVarArray(env, number_vertices);
-        create_problem(find_independent_sets());
+        create_problem(independent_sets);
     }
 
 
@@ -155,9 +171,8 @@ public:
         if (cplex.solve()) {
             size_t large_zero = candidates.size() - 1;
             for (size_t i = 0; i < candidates.size(); ++i)
-                if (cplex.getValue(x[candidates[i]]) > EPS) {
+                if (cplex.getValue(x[candidates[i]]) > cplex.getValue(x[candidates[large_zero]])) {
                     large_zero = i;
-                    break;
                 }
 
             if (!candidates.empty() && large_zero != candidates.size() - 1)
@@ -212,8 +227,8 @@ public:
         for (auto &i: max_clique_set)
             candidates.push_back(i);
 
-        solution = {(int) max_clique.size(), max_clique};
-        global_answer = (int) max_clique.size();
+        solution = {(int) max_clique_set.size(), max_clique};
+        global_answer = (int) max_clique_set.size();
 
         BnB();
 
@@ -250,7 +265,7 @@ public:
         double sol = cplex_solve();
 
         if (floor(sol + EPS) <= cur_solution.size() || floor(sol + EPS) <= global_answer) {
-            if (global_answer < (int)cur_solution.size()) {
+            if (global_answer < (int) cur_solution.size()) {
                 global_answer = cur_solution.size();
                 solution = MAX_CLIQUE{global_answer, cur_solution};
             }
@@ -287,7 +302,6 @@ public:
                 break;
             }
 
-//        int h = random_int(rng) % 2;
         int h = 1;
         for (auto &v: {h, 1 - h}) {
             if (add[v]) {
@@ -309,8 +323,9 @@ public:
     bool check_solve() {
         for (auto &v1: solution.vertices)
             for (auto &v2: solution.vertices)
-                if (v1 != v2 && graph.graph_matrix[v1][v2] == 0)
+                if (v1 != v2 && graph.graph_matrix[v1][v2] == 0) {
                     return false;
+                }
         return (int) solution.vertices.size() == solution.size;
     }
 
@@ -322,6 +337,8 @@ int main() {
 
     ofstream result("../result.csv");
 
+    result << "is_clique,is_best_known,graph,time,bnb_sol,best_known,heuristic_clique,was_IL,min_independent_set_size\n";
+
     for (auto &graph_case: info) {
 
         cout << "Filename: " << graph_case.first << "\n";
@@ -329,19 +346,21 @@ int main() {
 
         auto begin = chrono::system_clock::now();
         MaxCliqueSolver solver = MaxCliqueSolver(graph);
-        solver.solve(100000);
+        solver.solve();
         auto time = getDiff(begin);
 
-        cout << "Time: " << time << "; " << solver.IL << "; " << solver.solution.size << "; " << graph_case.second << "\n";
+        cout << "Time: " << time << "; " << solver.IL << "; " << solver.solution.size << "; " << graph_case.second
+             << "\n";
 
+        result << solver.check_solve() << ",";
         if (solver.solution.size == graph_case.second && solver.check_solve()) {
-            result << true << ", ";
+            result << true << ",";
         } else
-            result << false << ", ";
+            result << false << ",";
 
         result << graph_case.first << ",";
         result << time << "," << solver.solution.size << "," << graph_case.second << "," << solver.max_clique.size()
-               << ", " << solver.IL << "\n";
+               << "," << solver.IL << "," << solver.min_independent_set_size << "\n";
 
         cout << "\n";
 
