@@ -22,7 +22,7 @@ public:
     vector<int> candidates;
     int prev_vertex = -1, prev_vertex_value = 0;
     vector<int> max_clique;
-    int iterations = -1;
+    int tl = -1;
 
     explicit MaxCliqueSolver(const GRAPH &graph, int min_independent_set_size = -1) {
         this->graph = graph;
@@ -203,13 +203,17 @@ public:
         }
     }
 
-    MAX_CLIQUE solve(int iterations = -1) {
-        this->iterations = iterations;
+    chrono::time_point<chrono::system_clock, chrono::duration<long, ratio<1, 1000000000>>> start;
+
+    MAX_CLIQUE
+    solve(int tl, chrono::time_point<chrono::system_clock, chrono::duration<long, ratio<1, 1000000000>>> start) {
+        this->start = start;
+        this->tl = tl;
 
         candidates.reserve(number_vertices);
 
         for (int vertex = 0; vertex < number_vertices; ++vertex)
-            for (int attempt = 0; attempt < number_vertices; ++attempt) {
+            for (int attempt = 0; attempt < 20 * number_vertices; ++attempt) {
                 vector<int> cur;
                 cur.push_back(vertex);
                 find_clique(cur);
@@ -235,15 +239,15 @@ public:
         return solution;
     }
 
-    bool IL = false;
+    bool TL = false;
 
     void BnB() {
 
-        if (iterations == 0) {
-            IL = true;
+        if (getDiff(this->start) > tl) {
+            TL = true;
             return;
-        } else
-            --iterations;
+        }
+
 
         if ((int) candidates.size() + (int) cur_solution.size() <= global_answer)
             return;
@@ -334,11 +338,14 @@ public:
 int main() {
 
     auto info = read_info();
+    {
+        ofstream result("../result.csv", std::ios_base::app);
 
-    ofstream result("../result.csv");
+        result
+                << "is_clique,is_best_known,graph,time,bnb_sol,best_known,heuristic_clique,was_IL,min_independent_set_size\n";
 
-    result << "is_clique,is_best_known,graph,time,bnb_sol,best_known,heuristic_clique,was_IL,min_independent_set_size\n";
-
+        result.close();
+    }
     for (auto &graph_case: info) {
 
         cout << "Filename: " << graph_case.first << "\n";
@@ -346,12 +353,13 @@ int main() {
 
         auto begin = chrono::system_clock::now();
         MaxCliqueSolver solver = MaxCliqueSolver(graph);
-        solver.solve();
+        solver.solve(5 * 60 * 60 * 1000, begin);
         auto time = getDiff(begin);
 
-        cout << "Time: " << time << "; " << solver.IL << "; " << solver.solution.size << "; " << graph_case.second
+        cout << "Time: " << time << "; " << solver.TL << "; " << solver.solution.size << "; " << graph_case.second
              << "\n";
 
+        ofstream result("../result.csv", std::ios_base::app);
         result << solver.check_solve() << ",";
         if (solver.solution.size == graph_case.second && solver.check_solve()) {
             result << true << ",";
@@ -360,13 +368,11 @@ int main() {
 
         result << graph_case.first << ",";
         result << time << "," << solver.solution.size << "," << graph_case.second << "," << solver.max_clique.size()
-               << "," << solver.IL << "," << solver.min_independent_set_size << "\n";
+               << "," << solver.TL << "," << solver.min_independent_set_size << "\n";
 
+        result.close();
         cout << "\n";
 
     }
-
-    result.close();
-
     return 0;
 }
