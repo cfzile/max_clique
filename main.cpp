@@ -22,6 +22,8 @@ public:
     vector<int> candidates;
     int prev_vertex = -1, prev_vertex_value = 0;
     vector<int> max_clique;
+    set<vector<int>> all_sets;
+
     int tl = -1;
 
     explicit MaxCliqueSolver(const GRAPH &graph, int min_independent_set_size = -1) {
@@ -37,8 +39,10 @@ public:
                 auto sets = find_independent_sets();
                 if (sets.size() < independent_sets.size() || independent_sets.empty()) {
                     independent_sets = sets;
+                    all_sets = set<vector<int>>(sets.begin(), sets.end());
                     the_best = this->min_independent_set_size;
-                }
+                } else
+                    break;
             }
             this->min_independent_set_size = the_best;
         } else {
@@ -160,7 +164,14 @@ public:
 
     }
 
+    pair<double, vector<pair<double, int>>> cplex_solution;
+    vector<double> cplex_solution_2;
+
+    bool all_integers;
+
     double cplex_solve() {
+        all_integers = false;
+
         if (candidates.empty())
             return (double) cur_solution.size();
 
@@ -168,18 +179,35 @@ public:
         cplex.setOut(env.getNullStream());
 
         double ans = -1;
+
         if (cplex.solve()) {
             size_t large_zero = candidates.size() - 1;
-            for (size_t i = 0; i < candidates.size(); ++i)
+            vector<pair<double, int>> xs;
+
+            cplex_solution_2.resize(number_vertices);
+
+            all_integers = true;
+            for (int i = 0; i < number_vertices; ++i) {
+                cplex_solution_2[i] = cplex.getValue(x[i]);
+                if (!(abs(1. - cplex.getValue(x[i])) < EPS || abs(cplex.getValue(x[i])) < EPS)) {
+                    all_integers = false;
+                }
+            }
+
+            for (size_t i = 0; i < candidates.size(); ++i) {
                 if (cplex.getValue(x[candidates[i]]) > cplex.getValue(x[candidates[large_zero]])) {
                     large_zero = i;
                 }
+                xs.push_back({cplex.getValue(x[candidates[i]]), candidates[i]});
+            }
 
             if (!candidates.empty() && large_zero != candidates.size() - 1)
                 swap(candidates[candidates.size() - 1], candidates[large_zero]);
 
             ans = cplex.getObjValue();
-        }
+            cplex_solution = {ans, xs};
+        } else
+            all_integers = false;
 
         cplex.end();
         return ans;
@@ -203,6 +231,23 @@ public:
         }
     }
 
+    void find_clique2(vector<int> &cur_clique) {
+        if (cur_clique.size() > max_clique.size())
+            max_clique = cur_clique;
+        for (auto vertex: graph.num_edges[cur_clique[random_int(rng) % cur_clique.size()]]) {
+            bool add = true;
+            for (auto &j: cur_clique)
+                if (graph.graph_matrix[vertex][j] == 0 || vertex == j)
+                    add = false;
+            if (add) {
+                cur_clique.push_back(vertex);
+                find_clique2(cur_clique);
+                cur_clique.pop_back();
+                break;
+            }
+        }
+    }
+
     chrono::time_point<chrono::system_clock, chrono::duration<long, ratio<1, 1000000000>>> start;
 
     MAX_CLIQUE
@@ -213,10 +258,11 @@ public:
         candidates.reserve(number_vertices);
 
         for (int vertex = 0; vertex < number_vertices; ++vertex)
-            for (int attempt = 0; attempt < 20 * number_vertices; ++attempt) {
+            for (int attempt = 0; attempt < 5 * number_vertices; ++attempt) {
                 vector<int> cur;
                 cur.push_back(vertex);
                 find_clique(cur);
+//                find_clique2(cur);
             }
 
         cout << "Initial max clique size: " << max_clique.size() << "\n";
@@ -234,20 +280,83 @@ public:
         solution = {(int) max_clique_set.size(), max_clique};
         global_answer = (int) max_clique_set.size();
 
-        BnB();
+        BnC();
 
         return solution;
     }
 
+    set<pair<double, vector<int>>> cur_sets;
+
+    void find_constraint(vector<int> &cur_constraint, double sum, vector<pair<double, int>> &free) {
+
+        if (!cur_sets.empty())
+            return;
+
+        while (!free.empty()) {
+            auto i = *free.begin();
+            bool add = true;
+            for (auto j: cur_constraint)
+                if (i.second == j || graph.graph_matrix[i.second][j] == 1) {
+                    add = false;
+                    break;
+                }
+            free.erase(free.begin());
+            if (add) {
+                cur_constraint.push_back(i.second);
+                find_constraint(cur_constraint, sum + i.first, free);
+                cur_constraint.pop_back();
+                return;
+            }
+        }
+
+        if (sum > 1. + EPS && (int) cur_constraint.size() >= 5) {
+            sort(cur_constraint.begin(), cur_constraint.end());
+            if (all_sets.find(cur_constraint) != all_sets.end())
+                return;
+            all_sets.insert(cur_constraint);
+            cur_sets.insert({sum, cur_constraint});
+        }
+    }
+
+    void separation() {
+        cur_sets.clear();
+        auto S = vector<int>();
+
+        double init_f = cplex_solution.first;
+
+        find_constraint(S, 0, cplex_solution.second);
+
+        IloRange constraint;
+        IloExpr expr(env);
+
+        if (!cur_sets.empty()) {
+            auto cur_constraint = cur_sets.rbegin()->second;
+            expr.clear();
+            for (auto i: cur_constraint)
+                expr += x[i];
+
+            constraint = IloRange(env, 0, expr, 1);
+            model.add(constraint);
+
+            double f = cplex_solve();
+            if (f != init_f && !all_integers) {
+                model.remove(constraint);
+            }else
+                cout << "OK\n";
+        }
+        constraint.end();
+        expr.end();
+
+    }
+
     bool TL = false;
 
-    void BnB() {
+    void BnC() {
 
         if (getDiff(this->start) > tl) {
             TL = true;
             return;
         }
-
 
         if ((int) candidates.size() + (int) cur_solution.size() <= global_answer)
             return;
@@ -256,17 +365,33 @@ public:
         bool is_first_vertex = (prev_vertex == -1);
 
         IloRange constraint;
-        IloExpr expr(env);
 
         if (!is_first_vertex) {
             if (prev_vertex_in)
                 cur_solution.push_back(prev_vertex);
-            expr = x[prev_vertex];
-            constraint = IloRange(env, prev_vertex_value, expr, prev_vertex_value);
+            constraint = IloRange(env, prev_vertex_value, x[prev_vertex], prev_vertex_value);
             model.add(constraint);
         }
 
         double sol = cplex_solve();
+
+        if (all_integers) {
+            if (cplex_solution.first + EPS > global_answer) {
+                global_answer = (int)(cplex_solution.first + EPS);
+                vector<int> cur_solution_;
+                for (int i = 0; i < number_vertices; i++)
+                    if (abs(cplex_solution_2[i] - 1) < EPS)
+                        cur_solution_.push_back(i);
+                if ((int) cur_solution_.size() != (int) (EPS + cplex_solution.first) || (int) cur_solution_.size() != global_answer)
+                    throw;
+                solution = MAX_CLIQUE{global_answer, cur_solution_};
+            }
+            if (prev_vertex_in)
+                cur_solution.pop_back();
+            if (!is_first_vertex)
+                model.remove(constraint);
+            return;
+        }
 
         if (floor(sol + EPS) <= cur_solution.size() || floor(sol + EPS) <= global_answer) {
             if (global_answer < (int) cur_solution.size()) {
@@ -277,7 +402,6 @@ public:
                 cur_solution.pop_back();
             if (!is_first_vertex)
                 model.remove(constraint);
-            expr.end();
             return;
         }
 
@@ -292,12 +416,13 @@ public:
             if (!is_first_vertex)
                 model.remove(constraint);
 
-            expr.end();
             return;
         }
 
         int vertex = candidates.back();
         candidates.pop_back();
+
+        separation();
 
         bool add[2] = {true, true};
         for (int i: cur_solution)
@@ -310,7 +435,7 @@ public:
         for (auto &v: {h, 1 - h}) {
             if (add[v]) {
                 prev_vertex = vertex, prev_vertex_value = v;
-                BnB();
+                BnC();
             }
         }
 
@@ -321,7 +446,6 @@ public:
             if (prev_vertex_in)
                 cur_solution.pop_back();
         }
-        expr.end();
     }
 
     bool check_solve() {
@@ -342,7 +466,7 @@ int main() {
         ofstream result("../result.csv", std::ios_base::app);
 
         result
-                << "is_clique,is_best_known,graph,time,bnb_sol,best_known,heuristic_clique,was_IL,min_independent_set_size\n";
+                << "is_clique,is_best_known,graph,time,bnb_sol,best_known,heuristic_clique,was_TL,min_independent_set_size\n";
 
         result.close();
     }
@@ -353,7 +477,7 @@ int main() {
 
         auto begin = chrono::system_clock::now();
         MaxCliqueSolver solver = MaxCliqueSolver(graph);
-        solver.solve(5 * 60 * 60 * 1000, begin);
+        solver.solve(2 * 60 * 60 * 1000, begin);
         auto time = getDiff(begin);
 
         cout << "Time: " << time << "; " << solver.TL << "; " << solver.solution.size << "; " << graph_case.second
@@ -361,10 +485,14 @@ int main() {
 
         ofstream result("../result.csv", std::ios_base::app);
         result << solver.check_solve() << ",";
-        if (solver.solution.size == graph_case.second && solver.check_solve()) {
+        if (!solver.check_solve())
+            throw;
+        if (solver.solution.size == graph_case.second) {
             result << true << ",";
-        } else
+        } else {
             result << false << ",";
+//            throw;
+        }
 
         result << graph_case.first << ",";
         result << time << "," << solver.solution.size << "," << graph_case.second << "," << solver.max_clique.size()

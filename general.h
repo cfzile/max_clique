@@ -8,7 +8,7 @@
 
 #include <ilcplex/ilocplex.h>
 
-#define EPS 0.00001
+#define EPS 1e-6
 
 ILOSTLBEGIN
 
@@ -25,7 +25,7 @@ struct GRAPH {
     GRAPH_MATRIX graph_matrix;
     EDGES edges;
     int number_vertices;
-    vector<int> num_edges;
+    vector<vector<int>> num_edges;
 };
 
 GRAPH read_graph(const string &filename) {
@@ -46,7 +46,7 @@ GRAPH read_graph(const string &filename) {
     }
 
     GRAPH_MATRIX graph_matrix(number_vertices, vector<int>(number_vertices, 0));
-    vector<int> num_edges(number_vertices, 0);
+    vector<vector<int>> num_edges(number_vertices);
     EDGES edges;
     for (int i = 0; i < number_edges; i++) {
         char c;
@@ -54,11 +54,17 @@ GRAPH read_graph(const string &filename) {
         file >> c >> a >> b;
         a--;
         b--;
-        num_edges[a] += 1;
-        num_edges[b] += 1;
+        num_edges[a].push_back(b);
+        num_edges[b].push_back(a);
         graph_matrix[a][b] = graph_matrix[b][a] = 1;
         edges.push_back({a, b});
     }
+
+    for (auto &i: num_edges)
+        sort(i.begin(), i.end(), [num_edges](int a, int b) {
+            return num_edges[a].size() > num_edges[b].size();
+        });
+
     file.close();
 
     return GRAPH{graph_matrix, edges, number_vertices, num_edges};
