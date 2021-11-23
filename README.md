@@ -1,6 +1,6 @@
 # Max Clique Problem (BnC)
 
-| Graph              |   BnB answer |   Best known answer |   Time (in sec) |   Is Clique |   Is the Best Known Clique |   Heuristic Max Clique |   Min Independent Set Size |   Was TL |   TL (sec) |   Time (in millisec) |   Time (in min) |
+| Graph              |   BnC answer |   Best known answer |   Time (in sec) |   Is Clique |   Is the Best Known Clique |   Heuristic Max Clique |   Min Independent Set Size |   Was TL |   TL (sec) |   Time (in millisec) |   Time (in min) |
 |:-------------------|-------------:|--------------------:|----------------:|------------:|---------------------------:|-----------------------:|---------------------------:|---------:|-----------:|---------------------:|----------------:|
 | brock200_2.clq     |           12 |                  12 |          60.659 |           1 |                          1 |                     12 |                          7 |        0 |       7200 |      60659           |     1.01098     |
 | brock200_3.clq     |           15 |                  15 |         288.89  |           1 |                          1 |                     15 |                          5 |        0 |       7200 |     288890           |     4.81483     |
