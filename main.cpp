@@ -231,23 +231,6 @@ public:
         }
     }
 
-    void find_clique2(vector<int> &cur_clique) {
-        if (cur_clique.size() > max_clique.size())
-            max_clique = cur_clique;
-        for (auto vertex: graph.num_edges[cur_clique[random_int(rng) % cur_clique.size()]]) {
-            bool add = true;
-            for (auto &j: cur_clique)
-                if (graph.graph_matrix[vertex][j] == 0 || vertex == j)
-                    add = false;
-            if (add) {
-                cur_clique.push_back(vertex);
-                find_clique2(cur_clique);
-                cur_clique.pop_back();
-                break;
-            }
-        }
-    }
-
     chrono::time_point<chrono::system_clock, chrono::duration<long, ratio<1, 1000000000>>> start;
 
     MAX_CLIQUE
@@ -262,7 +245,6 @@ public:
                 vector<int> cur;
                 cur.push_back(vertex);
                 find_clique(cur);
-//                find_clique2(cur);
             }
 
         cout << "Initial max clique size: " << max_clique.size() << "\n";
@@ -341,8 +323,7 @@ public:
             double f = cplex_solve();
             if (f != init_f && !all_integers) {
                 model.remove(constraint);
-            }else
-                cout << "OK\n";
+            }
         }
         constraint.end();
         expr.end();
@@ -491,7 +472,6 @@ int main() {
             result << true << ",";
         } else {
             result << false << ",";
-//            throw;
         }
 
         result << graph_case.first << ",";
